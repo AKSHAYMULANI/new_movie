@@ -2,16 +2,61 @@ import re
 from os import environ
 from Script import script
 
-id_pattern = re.compile(r"^.\d+$")
+# Allow negative ids (e.g. -1001234567890 for channels) and normal integers
+id_pattern = re.compile(r"^-?\d+$")
 
 
 def is_enabled(value, default):
-    if value.lower() in ["true", "yes", "1", "enable", "y"]:
-        return True
-    elif value.lower() in ["false", "no", "0", "disable", "n"]:
-        return False
-    else:
+    """
+    Accepts boolean, or a string value (from environ).
+    Returns boolean.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
         return default
+    v = str(value).strip().lower()
+    if v in ("true", "yes", "1", "enable", "y"):
+        return True
+    if v in ("false", "no", "0", "disable", "n"):
+        return False
+    return default
+
+
+def parse_id(value):
+    """
+    Return int if value is a valid numeric id, else None.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if id_pattern.fullmatch(s):
+        try:
+            return int(s)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_list_of_ids(env_value, default_list):
+    """
+    Parse a whitespace-separated env var into ints when numeric, else keep string tokens.
+    Example: "933064491 -1001234567890 username"
+    """
+    raw = environ.get(env_value)
+    if raw is None:
+        raw = " ".join(default_list) if default_list else ""
+    items = [tok.strip() for tok in raw.split() if tok.strip()]
+    parsed = []
+    for tok in items:
+        if id_pattern.fullmatch(tok):
+            try:
+                parsed.append(int(tok))
+            except ValueError:
+                parsed.append(tok)
+        else:
+            parsed.append(tok)
+    return parsed
 
 
 # Main
@@ -22,54 +67,58 @@ BOT_TOKEN = environ.get("BOT_TOKEN", "8392806853:AAG5nrcRnSRmX5PDohWK9E0t4uRGvDC
 PORT = environ.get("PORT", "8082")
 
 # Owners
-ADMINS = [
-    int(admin) if id_pattern.search(admin) else admin
-    for admin in environ.get("ADMINS", "933064491").split()
-]
-OWNER_USERNAME = environ.get(
-    "OWNER_USERNAME", "akshaymulani"
-)  # without @ or https://t.me/
+ADMINS = parse_list_of_ids("ADMINS", ["933064491"])
+OWNER_USERNAME = environ.get("OWNER_USERNAME", "akshaymulani")  # without @
 USERNAME = environ.get("USERNAME", "akshaymulani")  # ADMIN USERNAME
 
-# Database Channel
-CHANNELS = [
-    int(ch) if id_pattern.search(ch) else ch
-    for ch in environ.get("CHANNELS", "-100329179136").split()
-]
+# Database Channel(s)
+# Provide a sane default or make it empty list if you don't want one
+CHANNELS = parse_list_of_ids("CHANNELS", ["-1003291791362"])
 
 # ForceSub Channel & Log Channels
-AUTH_CHANNEL = int(environ.get("AUTH_CHANNEL", "-1003375963741"))
-AUTH_REQ_CHANNEL = int(environ.get("AUTH_REQ_CHANNEL", "-1003375963741"))
-LOG_CHANNEL = int(environ.get("LOG_CHANNEL", "0"))
-LOG_API_CHANNEL = int(environ.get("LOG_API_CHANNEL", "0"))
-LOG_VR_CHANNEL = int(environ.get("LOG_VR_CHANNEL", "0"))
+AUTH_CHANNEL = parse_id(environ.get("AUTH_CHANNEL", "-1003291791362"))
+AUTH_REQ_CHANNEL = parse_id(environ.get("AUTH_REQ_CHANNEL", "-1003291791362"))
+
+# For optional channels, DO NOT default to 0 (0 is invalid peer). Use None if not set.
+LOG_CHANNEL = parse_id(environ.get("LOG_CHANNEL", None))
+LOG_API_CHANNEL = parse_id(environ.get("LOG_API_CHANNEL", None))
+LOG_VR_CHANNEL = parse_id(environ.get("LOG_VR_CHANNEL", None))
 
 # MongoDB
-DATABASE_URI = environ.get("DATABASE_URI", "mongodb+srv://marutee:marutee@marutee.ekweprt.mongodb.net/?appName=marutee")
-DATABASE_NAME = environ.get("DATABASE_NAME", "marutee")
+DATABASE_URI = environ.get(
+    "DATABASE_URI",
+    "mongodb+srv://marutee:marutee@marutee.ekweprt.mongodb.net/?appName=marutee",
+).strip()
+DATABASE_NAME = environ.get("DATABASE_NAME", "marutee").strip()
 
-# Files index database url
-FILES_DATABASE = environ.get("FILES_DATABASE", "mongodb+srv://marutee:marutee@marutee.ekweprt.mongodb.net/?appName=marutee")
+# Files index database url: prefer FILES_DATABASE env var; fallback to DATABASE_URI
+FILES_DATABASE = environ.get("FILES_DATABASE", "").strip() or DATABASE_URI
+# Basic validation — avoid empty string that caused ConfigurationError
+if not FILES_DATABASE or "mongodb" not in FILES_DATABASE:
+    raise RuntimeError(
+        "FILES_DATABASE is missing or invalid. Set FILES_DATABASE or DATABASE_URI env var to a valid MongoDB URI."
+)
+
 COLLECTION_NAME = environ.get("COLLECTION_NAME", "jisshu")
 
 # Other Channel's
-SUPPORT_GROUP = int(environ.get("SUPPORT_GROUP", "-1001864434358"))
-DELETE_CHANNELS = int(environ.get("DELETE_CHANNELS", "0"))
-request_channel = environ.get("REQUEST_CHANNEL", "-1001864434358")
-REQUEST_CHANNEL = (
-    int(request_channel)
-    if request_channel and id_pattern.search(request_channel)
-    else None
-)
-MOVIE_UPDATE_CHANNEL = int(environ.get("MOVIE_UPDATE_CHANNEL", "-1001864434358"))
+SUPPORT_GROUP = parse_id(environ.get("SUPPORT_GROUP", None))
+DELETE_CHANNELS = parse_id(environ.get("DELETE_CHANNELS", None))
+
+request_channel = environ.get("REQUEST_CHANNEL", None)
+REQUEST_CHANNEL = parse_id(request_channel)
+
+MOVIE_UPDATE_CHANNEL = parse_id(environ.get("MOVIE_UPDATE_CHANNEL", None))
 
 # Added Link Here Not Id
 SUPPORT_CHAT = environ.get("SUPPORT_CHAT", "https://t.me/akshaymulani")
-MOVIE_GROUP_LINK = environ.get("MOVIE_GROUP_LINK", "https://t.me/+U9oTBETpkpg4YzNl")
+MOVIE_GROUP_LINK = environ.get(
+    "MOVIE_GROUP_LINK", "https://t.me/+U9oTBETpkpg4YzNl"
+)
 
 # Verification
-IS_VERIFY = is_enabled("IS_VERIFY", True)
-# ---------------------------------------------------------------
+IS_VERIFY = is_enabled(environ.get("IS_VERIFY", None), True)
+
 TUTORIAL = environ.get("TUTORIAL", "https://t.me/")
 TUTORIAL_2 = environ.get("TUTORIAL_2", "https://t.me/")
 TUTORIAL_3 = environ.get("TUTORIAL_3", "https://t.me/")
@@ -78,14 +127,10 @@ VERIFY_IMG = environ.get(
 )
 SHORTENER_API = environ.get("SHORTENER_API", "1bb101f6edcd5e1298f96b50a78f15252a3f8f4d")
 SHORTENER_WEBSITE = environ.get("SHORTENER_WEBSITE", "arolinks.com")
-SHORTENER_API2 = environ.get(
-    "SHORTENER_API2", "1bb101f6edcd5e1298f96b50a78f15252a3f8f4d"
-)
-SHORTENER_WEBSITE2 = environ.get("SHORTENER_WEBSITE2", "arolinks.com")
-SHORTENER_API3 = environ.get(
-    "SHORTENER_API3", "1bb101f6edcd5e1298f96b50a78f15252a3f8f4d"
-)
-SHORTENER_WEBSITE3 = environ.get("SHORTENER_WEBSITE3", "arolinks.com")
+SHORTENER_API2 = environ.get("SHORTENER_API2", SHORTENER_API)
+SHORTENER_WEBSITE2 = environ.get("SHORTENER_WEBSITE2", SHORTENER_WEBSITE)
+SHORTENER_API3 = environ.get("SHORTENER_API3", SHORTENER_API)
+SHORTENER_WEBSITE3 = environ.get("SHORTENER_WEBSITE3", SHORTENER_WEBSITE)
 TWO_VERIFY_GAP = int(environ.get("TWO_VERIFY_GAP", "14400"))
 THREE_VERIFY_GAP = int(environ.get("THREE_VERIFY_GAP", "14400"))
 
@@ -143,36 +188,31 @@ SUBSCRIPTION = environ.get(
 )
 REACTIONS = ["👀", "😱", "🔥", "😍", "🎉", "🥰", "😇", "⚡"]
 
-
-# Other Funtions
+# Other Functions
 FILE_AUTO_DEL_TIMER = int(environ.get("FILE_AUTO_DEL_TIMER", "600"))
-AUTO_FILTER = is_enabled("AUTO_FILTER", True)
-IS_PM_SEARCH = is_enabled("IS_PM_SEARCH", False)
-IS_SEND_MOVIE_UPDATE = is_enabled(
-    "IS_SEND_MOVIE_UPDATE", False
-)  # Don't Change It ( If You Want To Turn It On Then Turn It On By Commands) We Suggest You To Make It Turn Off If You Are Indexing Files First Time.
+AUTO_FILTER = is_enabled(environ.get("AUTO_FILTER", None), True)
+IS_PM_SEARCH = is_enabled(environ.get("IS_PM_SEARCH", None), False)
+IS_SEND_MOVIE_UPDATE = is_enabled(environ.get("IS_SEND_MOVIE_UPDATE", None), False)
 MAX_BTN = int(environ.get("MAX_BTN", "8"))
-AUTO_DELETE = is_enabled("AUTO_DELETE", True)
-DELETE_TIME = int(environ.get("DELETE_TIME", 1200))
-IMDB = is_enabled("IMDB", False)
+AUTO_DELETE = is_enabled(environ.get("AUTO_DELETE", None), True)
+DELETE_TIME = int(environ.get("DELETE_TIME", "1200"))
+IMDB = is_enabled(environ.get("IMDB", None), False)
 FILE_CAPTION = environ.get("FILE_CAPTION", f"{script.FILE_CAPTION}")
 IMDB_TEMPLATE = environ.get("IMDB_TEMPLATE", f"{script.IMDB_TEMPLATE_TXT}")
-LONG_IMDB_DESCRIPTION = is_enabled("LONG_IMDB_DESCRIPTION", False)
-PROTECT_CONTENT = is_enabled("PROTECT_CONTENT", False)
-SPELL_CHECK = is_enabled("SPELL_CHECK", True)
-LINK_MODE = is_enabled("LINK_MODE", True)
+LONG_IMDB_DESCRIPTION = is_enabled(environ.get("LONG_IMDB_DESCRIPTION", None), False)
+PROTECT_CONTENT = is_enabled(environ.get("PROTECT_CONTENT", None), False)
+SPELL_CHECK = is_enabled(environ.get("SPELL_CHECK", None), True)
+LINK_MODE = is_enabled(environ.get("LINK_MODE", None), True)
 TMDB_API_KEY = environ.get("TMDB_API_KEY", "")
 
 # Online Streaming And Download
-STREAM_MODE = bool(environ.get("STREAM_MODE", True))  # Set True or Flase
+STREAM_MODE = is_enabled(environ.get("STREAM_MODE", None), True)
 
 MULTI_CLIENT = False
 SLEEP_THRESHOLD = int(environ.get("SLEEP_THRESHOLD", "60"))
 PING_INTERVAL = int(environ.get("PING_INTERVAL", "1200"))  # 20 minutes
-if "DYNO" in environ:
-    ON_HEROKU = True
-else:
-    ON_HEROKU = False
+
+ON_HEROKU = bool(environ.get("DYNO", False))
 URL = environ.get("FQDN", "")
 
 # Commands
@@ -181,7 +221,7 @@ admin_cmds = [
     "/premium_users - View All Premium Users",
     "/remove_premium - Remove A User's Premium Status",
     "/add_redeem - Generate A Redeem Code",
-    "/refresh - Refresh Free Trail",
+    "/refresh - Refresh Free Trial",
     "/set_muc - Set Movie Update Channel",
     "/pm_search_on - Enable PM Search",
     "/pm_search_off - Disable PM Search",
